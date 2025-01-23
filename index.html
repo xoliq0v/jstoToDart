@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JSON to DTO & Equatable Model</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+    <style>
+        body { 
+            background-color: #f4f4f7; 
+        }
+        #output {
+            max-height: 500px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body class="container mx-auto px-4 py-8 max-w-4xl">
+    <div class="bg-white shadow-md rounded-lg p-6">
+        <h2 class="text-2xl font-bold mb-4 text-center text-gray-800">JSON to Dart DTO & Equatable Model</h2>
+        
+        <div class="mb-4">
+            <label for="className" class="block text-sm font-medium text-gray-700">Class Name</label>
+            <input 
+                id="className" 
+                type="text" 
+                placeholder="Enter Class Name (e.g., User)" 
+                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
+            >
+        </div>
+
+        <div class="mb-4">
+            <label for="jsonInput" class="block text-sm font-medium text-gray-700">JSON Input</label>
+            <textarea 
+                id="jsonInput" 
+                placeholder="Paste your JSON here..."
+                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50 h-48"
+            ></textarea>
+        </div>
+
+        <div class="flex space-x-4 mb-4">
+            <button 
+                onclick="convertJson()" 
+                class="flex-grow bg-indigo-600 text-white py-2 rounded-md hover:bg-indigo-700 transition duration-300 flex items-center justify-center"
+            >
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                </svg>
+                Convert
+            </button>
+            <button 
+                onclick="copyToClipboard()" 
+                class="flex-grow bg-green-600 text-white py-2 rounded-md hover:bg-green-700 transition duration-300 flex items-center justify-center"
+            >
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path>
+                </svg>
+                Copy
+            </button>
+        </div>
+
+        <div class="bg-gray-100 rounded-md p-4">
+            <h3 class="text-lg font-semibold mb-2 text-gray-800">Generated DTO & Model:</h3>
+            <pre id="output" class="text-sm text-gray-700 overflow-x-auto"></pre>
+        </div>
+
+        <div id="errorMessage" class="mt-4 text-red-600 text-center"></div>
+    </div>
+
+    <script>
+        function convertJson() {
+            const jsonInput = document.getElementById("jsonInput").value;
+            const className = document.getElementById("className").value || "GeneratedClass";
+            const errorMessage = document.getElementById("errorMessage");
+            const outputElement = document.getElementById("output");
+
+            try {
+                const jsonObject = JSON.parse(jsonInput);
+                let dartCode = generateDtoAndModel(jsonObject, className);
+                outputElement.textContent = dartCode;
+                errorMessage.textContent = "";
+            } catch (error) {
+                outputElement.textContent = "";
+                errorMessage.textContent = `Invalid JSON: ${error.message}`;
+            }
+        }
+
+        function generateDtoAndModel(obj, className) {
+            let classes = new Map();
+            let mainClass = generateClass(obj, className, classes);
+            return Array.from(classes.values()).join("\n\n") + "\n\n" + mainClass;
+        }
+
+        function generateClass(obj, className, classes) {
+            let fields = Object.entries(obj).map(([key, value]) => {
+                let type = getType(value, key, classes);
+                return `  final ${type} ${toCamelCase(key)};`;
+            }).join("\n");
+
+            let constructorParams = Object.keys(obj).map(key => `    required this.${toCamelCase(key)},`).join("\n");
+
+            let propsList = Object.keys(obj).map(key => toCamelCase(key)).join(", ");
+
+            return `@JsonSerializable()
+class ${className}Dto {
+${fields}
+
+  const ${className}Dto({
+${constructorParams}
+  });
+
+  factory ${className}Dto.fromJson(Map<String, dynamic> json) => _\$${className}DtoFromJson(json);
+  Map<String, dynamic> toJson() => _\$${className}DtoToJson(this);
+}
+
+class ${className} extends Equatable {
+${fields}
+
+  const ${className}({
+${constructorParams}
+  });
+
+  @override
+  List<Object?> get props => [${propsList}];
+}`;
+        }
+
+        function getType(value, key, classes) {
+            if (value === null) return "String?";
+            if (typeof value === "string") return "String";
+            if (typeof value === "number") return value % 1 === 0 ? "int" : "double";
+            if (typeof value === "boolean") return "bool";
+            if (Array.isArray(value)) {
+                if (value.length > 0) {
+                    let itemType = getType(value[0], key, classes);
+                    return `List<${itemType}>`;
+                }
+                return "List<dynamic>";
+            }
+            if (typeof value === "object") {
+                let className = (key.charAt(0).toUpperCase() + key.slice(1) + "Dto").replace(/Dto$/i, "Dto");
+                classes.set(className, generateClass(value, className, classes));
+                return className;
+            }
+            return "dynamic";
+        }
+
+        function toCamelCase(str) {
+            return str.replace(/_([a-z])/g, (match, letter) => letter.toUpperCase());
+        }
+
+        function copyToClipboard() {
+            const output = document.getElementById("output").textContent;
+            navigator.clipboard.writeText(output).then(() => {
+                const errorMessage = document.getElementById("errorMessage");
+                errorMessage.textContent = "Copied to clipboard!";
+                errorMessage.classList.remove("text-red-600");
+                errorMessage.classList.add("text-green-600");
+                setTimeout(() => {
+                    errorMessage.textContent = "";
+                    errorMessage.classList.remove("text-green-600");
+                    errorMessage.classList.add("text-red-600");
+                }, 2000);
+            }, () => {
+                const errorMessage = document.getElementById("errorMessage");
+                errorMessage.textContent = "Failed to copy!";
+            });
+        }
+    </script>
+</body>
+</html>
